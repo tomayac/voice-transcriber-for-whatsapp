@@ -61,6 +61,25 @@ const FINAL = new Set([
   'deleted',
 ]);
 
+function failAll(message) {
+  for (const reqId of inFlight) toPage({ type: 'error', reqId, message });
+  inFlight.clear();
+  stopWorker();
+}
+
+// The worker reports every five seconds. Safari can kill a worker that runs
+// out of memory without an `error` event, which would leave every request
+// waiting forever; the next request then gets a fresh worker.
+let lastAlive = 0;
+setInterval(() => {
+  if (worker && inFlight.size && Date.now() - lastAlive > 60_000) {
+    failAll(
+      'The transcriber stopped responding, possibly for lack of memory. ' +
+        'Try again, or pick a smaller model in the settings.',
+    );
+  }
+}, 10_000);
+
 function stopWorker() {
   worker?.terminate();
   worker = null;
@@ -76,7 +95,10 @@ async function startWorker(settings) {
   worker = new Worker(new URL('./worker.js', import.meta.url), {
     type: 'module',
   });
+  lastAlive = Date.now();
   worker.addEventListener('message', ({ data }) => {
+    lastAlive = Date.now();
+    if (data.type === 'alive') return;
     if (data.type === 'cos') {
       const { type, ...request } = data;
       cosToPage(request);
@@ -92,10 +114,7 @@ async function startWorker(settings) {
   worker.addEventListener('error', (event) => {
     // A module that fails to load, or a worker the browser killed, typically
     // for running out of memory.
-    const message = event.message || 'The transcription worker crashed.';
-    for (const reqId of inFlight) toPage({ type: 'error', reqId, message });
-    inFlight.clear();
-    stopWorker();
+    failAll(event.message || 'The transcriber crashed.');
   });
   const crossOriginStorage =
     settings.useCrossOriginStorage && (await pingCrossOriginStorage());
@@ -129,7 +148,18 @@ async function transcribe(reqId, blob) {
   inFlight.add(reqId);
   try {
     toPage({ type: 'progress', reqId, stage: 'decode' });
-    const [audio, settings] = await Promise.all([decode(blob), getSettings()]);
+    const [audio, settings] = await Promise.all([
+      Promise.race([
+        decode(blob),
+        new Promise((resolve, reject) =>
+          setTimeout(
+            () => reject(new Error('Decoding the voice message timed out.')),
+            30_000,
+          ),
+        ),
+      ]),
+      getSettings(),
+    ]);
     const target = await getWorker(settings);
     target.postMessage({ type: 'transcribe', reqId, audio, settings }, [
       audio.buffer,

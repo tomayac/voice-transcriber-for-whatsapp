@@ -152,36 +152,64 @@ function resolveDevice(preference) {
 
 const loaded = new Map();
 
-function progressReporter(reqId, label) {
-  const files = new Map();
+// Requests waiting on the worker, active or queued. Downloading or loading a
+// model holds up all of them, so they all see its progress.
+const waiting = new Set();
+// What the worker is downloading or loading, for the settings to show.
+let busy = null;
+
+function broadcast(progress) {
+  busy = progress;
+  for (const reqId of waiting)
+    postMessage({ type: 'progress', reqId, ...progress });
+}
+
+function progressReporter(modelId, label, files) {
+  const sizes = new Map();
   let last = 0;
   return (info) => {
     if (info.status === 'progress' && info.total) {
-      files.set(info.file, [info.loaded, info.total]);
+      sizes.set(info.file, [info.loaded, info.total]);
       const now = performance.now();
       if (now - last < 250 && info.loaded < info.total) return;
       last = now;
       let done = 0;
       let total = 0;
-      for (const [l, t] of files.values()) {
+      for (const [l, t] of sizes.values()) {
         done += l;
         total += t;
       }
-      postMessage({
-        type: 'progress',
-        reqId,
+      broadcast({
         stage: 'download',
+        model: modelId,
         label,
         loaded: done,
         total,
       });
     } else if (info.status === 'done' || info.status === 'ready') {
-      postMessage({ type: 'progress', reqId, stage: 'load', label });
+      if (info.status === 'done' && info.file) files.add(info.file);
+      broadcast({ stage: 'load', model: modelId, label });
     }
   };
 }
 
-async function loadModel(modelId, preference, reqId) {
+// Transformers.js only logs a warning when the browser refuses to store a
+// file (for example, past the storage quota), so check that the weights it
+// fetched are really there. (With Cross-Origin Storage, it records small
+// files like `config.json` in the background, so those may not show yet.)
+async function missingFiles(spec, files) {
+  const store = await caches.open(
+    env.experimental_useCrossOriginStorage ? HASH_CACHE : env.cacheKey,
+  );
+  const missing = [];
+  for (const file of [...files].filter((f) => f.startsWith('onnx/'))) {
+    const url = `${env.remoteHost}${spec.repo}/resolve/main/${file}`;
+    if (!(await store.match(url))) missing.push(file);
+  }
+  return missing;
+}
+
+async function loadModel(modelId, preference) {
   const spec = MODELS[modelId];
   if (!spec) throw new Error(`Unknown model “${modelId}”.`);
   const deviceKey = await resolveDevice(preference);
@@ -192,16 +220,23 @@ async function loadModel(modelId, preference, reqId) {
   const key = `${modelId}|${deviceKey}`;
   if (!loaded.has(key)) {
     const device = deviceKey === 'wasm' ? 'wasm' : 'webgpu';
-    const progress_callback = progressReporter(reqId, spec.label);
-    postMessage({ type: 'progress', reqId, stage: 'load', label: spec.label });
+    const files = new Set();
+    const progress_callback = progressReporter(modelId, spec.label, files);
+    broadcast({ stage: 'load', model: modelId, label: spec.label });
     const promise = (async () => {
+      const bundle = await createModel();
+      bundle.missing = await missingFiles(spec, files);
+      if (!bundle.missing.length) await markDownloaded(modelId, deviceKey);
+      return bundle;
+    })();
+    async function createModel() {
       if (spec.family === 'whisper') {
         const asr = await pipeline('automatic-speech-recognition', spec.repo, {
           device,
           dtype,
           progress_callback,
         });
-        return { spec, asr, dispose: () => asr.dispose() };
+        return { spec, files, asr, dispose: () => asr.dispose() };
       }
       const [model, processor] = await Promise.all([
         VoxtralRealtimeForConditionalGeneration.from_pretrained(spec.repo, {
@@ -211,15 +246,20 @@ async function loadModel(modelId, preference, reqId) {
         }),
         VoxtralRealtimeProcessor.from_pretrained(spec.repo),
       ]);
-      return { spec, model, processor, dispose: () => model.dispose() };
-    })();
+      return {
+        spec,
+        files,
+        model,
+        processor,
+        dispose: () => model.dispose(),
+      };
+    }
     loaded.set(key, promise);
-    promise.then(
-      () => markDownloaded(modelId, deviceKey),
-      () => loaded.delete(key),
-    );
+    promise.catch(() => loaded.delete(key));
   }
-  return loaded.get(key);
+  const bundle = await loaded.get(key);
+  busy = null;
+  return bundle;
 }
 
 // Downloads. Transformers.js keeps files in Cache Storage (or, through the
@@ -257,11 +297,18 @@ async function modelsStatus(preference) {
       available: !!spec.dtype[deviceKey],
     };
   }
-  return { deviceKey, status };
+  return { deviceKey, status, busy };
 }
 
-async function downloadModel({ reqId, model, settings }) {
-  await loadModel(model, settings.device, reqId);
+async function downloadModel({ model, settings }) {
+  const bundle = await loadModel(model, settings.device);
+  if (bundle.missing.length) {
+    throw new Error(
+      `The browser did not keep ${bundle.missing.length} of the model’s ` +
+        `${bundle.files.size} files, so it will download them again next ` +
+        'time. It may be out of storage space for this site.',
+    );
+  }
   // Keep it loaded only if transcription is about to need it.
   const inUse = [settings.model];
   if (MODELS[settings.model].family !== 'whisper') {
@@ -452,7 +499,7 @@ async function transcribe({ reqId, audio, settings }) {
 
   if (primary.family === 'whisper') {
     await retainOnly([settings.model]);
-    const bundle = await loadModel(settings.model, settings.device, reqId);
+    const bundle = await loadModel(settings.model, settings.device);
     const { language, probability } = await detect(bundle);
     onText('');
     const text = await transcribeWhisper(bundle, audio, language, onText);
@@ -471,11 +518,7 @@ async function transcribe({ reqId, audio, settings }) {
   );
   let detected = { language: null, probability: 0 };
   if (needsLanguageId) {
-    const fallback = await loadModel(
-      settings.fallbackModel,
-      settings.device,
-      reqId,
-    );
+    const fallback = await loadModel(settings.fallbackModel, settings.device);
     detected = await detect(fallback);
     if (!primary.languages.includes(detected.language)) {
       onText('');
@@ -488,7 +531,7 @@ async function transcribe({ reqId, audio, settings }) {
       return { text, ...detected, model: settings.fallbackModel };
     }
   }
-  const bundle = await loadModel(settings.model, settings.device, reqId);
+  const bundle = await loadModel(settings.model, settings.device);
   onText('');
   const text = await transcribeVoxtral(bundle, audio, onText);
   return { text, ...detected, model: settings.model };
@@ -511,9 +554,32 @@ async function respond({ reqId }, task) {
   }
 }
 
+let queued = 0;
+
 function enqueue(data, task) {
-  queue = queue.then(() => respond(data, task));
+  waiting.add(data.reqId);
+  if (queued++) {
+    // Waiting behind a download shows that download's progress.
+    postMessage({
+      type: 'progress',
+      reqId: data.reqId,
+      stage: 'queued',
+      ...busy,
+    });
+  }
+  queue = queue.then(async () => {
+    try {
+      await respond(data, task);
+    } finally {
+      queued--;
+      waiting.delete(data.reqId);
+    }
+  });
 }
+
+// Lets the engine tell a busy worker from one the browser killed without
+// notice, which Safari does when a worker runs out of memory.
+setInterval(() => postMessage({ type: 'alive' }), 5000);
 
 addEventListener('message', ({ data }) => {
   switch (data.type) {

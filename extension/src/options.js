@@ -237,6 +237,9 @@ function onModelEvent({ type, reqId, ...data }) {
     requests.delete(reqId);
     if (type === 'models-status') {
       downloads = data;
+      // Follow a download started elsewhere, such as by an earlier copy of
+      // these settings, or by a transcription.
+      if (data.busy) setTimeout(refreshDownloads, 2000);
     } else {
       activity.delete(request.model);
       if (type === 'error') errors.set(request.model, data.message);
@@ -261,7 +264,9 @@ addEventListener('message', (event) => {
 });
 
 function downloadStatus(id, model) {
-  const busy = activity.get(id);
+  const busy =
+    activity.get(id) ??
+    (downloads?.busy?.model === id ? downloads.busy : undefined);
   if (busy === 'delete') return 'Deleting…';
   if (busy?.stage === 'download') {
     return `Downloading… ${Math.floor((100 * busy.loaded) / busy.total)} % of ${formatBytes(busy.total)}`;
@@ -313,7 +318,8 @@ function renderDownloads() {
       }
       row.append(text);
       const state = downloads?.status[id];
-      if (state && !activity.has(id) && !tabProblem) {
+      const working = activity.has(id) || downloads?.busy?.model === id;
+      if (state && !working && !tabProblem) {
         const stored =
           state.complete || state.bytes || state.inCrossOriginStorage;
         if (state.available && !state.complete) {

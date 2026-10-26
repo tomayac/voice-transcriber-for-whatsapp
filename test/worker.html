@@ -37,6 +37,8 @@
         });
         worker.onerror = (event) => log('worker error', event.message ?? '');
         worker.onmessage = ({ data }) => {
+          if (data.type === 'progress')
+            window.lastProgress = { ...data, at: Date.now() };
           if (data.type !== 'progress' || data.stage !== 'download') log(data);
           if (data.type === 'result' || data.type === 'error')
             window.results.push(data);

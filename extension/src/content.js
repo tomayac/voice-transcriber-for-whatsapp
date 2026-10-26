@@ -482,6 +482,8 @@
         return 'Waiting for WhatsApp to play the voice message. If it does not start, press play.';
       case 'decode':
         return 'Decoding…';
+      case 'queued':
+        return 'Waiting for the transcriber to finish another task…';
       case 'download':
         return `Downloading ${state.label}… ${Math.floor(
           (100 * state.loaded) / state.total,

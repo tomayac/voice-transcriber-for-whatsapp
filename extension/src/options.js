@@ -155,10 +155,37 @@ const formatBytes = (bytes) =>
 
 let nextRequestId = 1;
 
-// Sends to each WhatsApp tab in turn until one takes the command. The request
-// id is made here and travels with the command, since Safari may not pass a
-// content script's reply back.
+// Opened from WhatsApp's page (the gear button), these settings run in the
+// same context as the transcriber and talk to it through the page. Opened on
+// their own, they look for a WhatsApp tab.
+const embedded = window.top !== window;
+
+function expectAnswer(reqId, model) {
+  // The first event normally arrives within a second or two; downloads keep
+  // reporting progress after that.
+  setTimeout(() => {
+    const request = requests.get(reqId);
+    if (!request || request.answered) return;
+    requests.delete(reqId);
+    activity.delete(model);
+    tabProblem = embedded
+      ? 'The transcriber did not answer. Reload WhatsApp, then try again.'
+      : 'WhatsApp did not answer. In a WhatsApp web app made with Add to ' +
+        'Dock, open these settings from WhatsApp itself: the gear button ' +
+        'below any voice message.';
+    renderDownloads();
+  }, 15_000);
+}
+
 async function sendCommand(command, model) {
+  const reqId = `o${Date.now()}-${nextRequestId++}`;
+  if (embedded) {
+    requests.set(reqId, { command, model, answered: false });
+    parent.postMessage({ vtw: 'settings', command, model, reqId }, '*');
+    expectAnswer(reqId, model);
+    renderDownloads();
+    return;
+  }
   const tabs = await ext.tabs.query({ url: contentMatches });
   if (!tabs.length) {
     tabProblem =
@@ -167,9 +194,10 @@ async function sendCommand(command, model) {
     renderDownloads();
     return;
   }
-  const reqId = `o${Date.now()}-${nextRequestId++}`;
   requests.set(reqId, { command, model, answered: false });
   const errors = [];
+  // Each WhatsApp tab in turn, until one takes the command. The request id
+  // travels with it, since Safari may not pass a content script's reply back.
   for (const tab of tabs) {
     try {
       await ext.tabs.sendMessage(tab.id, {
@@ -179,19 +207,8 @@ async function sendCommand(command, model) {
         reqId,
       });
       tabProblem = null;
+      expectAnswer(reqId, model);
       renderDownloads();
-      // The first event normally arrives within a second or two; downloads
-      // keep reporting progress after that.
-      setTimeout(() => {
-        const request = requests.get(reqId);
-        if (!request || request.answered) return;
-        requests.delete(reqId);
-        activity.delete(model);
-        tabProblem =
-          'WhatsApp Web took the request but did not answer. Reload it, ' +
-          'then come back here.';
-        renderDownloads();
-      }, 15_000);
       return;
     } catch (error) {
       errors.push(error?.message ?? String(error));
@@ -209,12 +226,11 @@ async function sendCommand(command, model) {
 
 const refreshDownloads = () => sendCommand('models-status');
 
-ext.runtime.onMessage.addListener((message) => {
-  if (message?.type !== 'vtw-model-event') return;
-  const { type, reqId, ...data } = message.event;
+function onModelEvent({ type, reqId, ...data }) {
   const request = requests.get(reqId);
   if (!request) return;
   request.answered = true;
+  tabProblem = null;
   if (type === 'progress') {
     activity.set(request.model, data);
   } else {
@@ -228,6 +244,20 @@ ext.runtime.onMessage.addListener((message) => {
     }
   }
   renderDownloads();
+}
+
+ext.runtime.onMessage.addListener((message) => {
+  if (message?.type === 'vtw-model-event') onModelEvent(message.event);
+});
+
+addEventListener('message', (event) => {
+  if (
+    embedded &&
+    event.source === parent &&
+    event.data?.vtw === 'model-event'
+  ) {
+    onModelEvent(event.data.event);
+  }
 });
 
 function downloadStatus(id, model) {
@@ -255,8 +285,11 @@ function renderDownloads() {
     Object.values(downloads.status).some((s) => s.inCrossOriginStorage);
   downloadsHint.textContent =
     tabProblem ??
-    'Downloads happen in your open WhatsApp Web tab, so that they go where ' +
-      'the transcriber looks for them.' +
+    (embedded
+      ? 'Models are stored for this WhatsApp window, where the transcriber ' +
+        'looks for them.'
+      : 'Downloads happen in your open WhatsApp Web tab, so that they go ' +
+        'where the transcriber looks for them.') +
       (anyInCrossOriginStorage
         ? ' Deleting a model that is in Cross-Origin Storage removes it here; ' +
           'the files stay available to other sites until you remove them in ' +

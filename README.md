@@ -22,7 +22,8 @@ Spanish.
 
 ## Models
 
-Choose the model in the extension's settings (click the toolbar button).
+Choose the model in the extension's settings (see
+[Settings and downloads](#settings-and-downloads)).
 
 | Model                    | Languages                    | Download (WebGPU, f16) |
 | ------------------------ | ---------------------------- | ---------------------- |
@@ -39,16 +40,21 @@ _fallback model_ identifies the language of each message first, and transcribes
 the messages Voxtral cannot handle. Voxtral needs WebGPU; Whisper also runs on
 the CPU, more slowly.
 
-### Downloading and deleting models
+### Settings and downloads
 
-The **Downloads** section of the settings shows which models are stored, and
-downloads or deletes them. Both run in an open WhatsApp Web tab, in the same
-engine that transcribes there, so the files land in the storage it reads from: a
-Safari web app keeps its own website data apart from Safari's, and only the
-WhatsApp page can reach Cross-Origin Storage. Deleting a model removes it from
-the browser's cache. Files in Cross-Origin Storage stay available to other sites
-until you remove them in the Cross-Origin Storage extension, since the API has
-no delete operation.
+Open the settings with the gear button next to any voice message's
+**Transcribe** control, or, in Chrome, with the extension's toolbar button. In a
+WhatsApp web app made with Safari's **Add to Dock**, use the gear button: the
+app keeps its own storage and extension messaging, apart from Safari's windows,
+so settings opened from Safari do not reach it.
+
+The **Downloads** section shows which models are stored, and downloads or
+deletes them. Both run in WhatsApp's page, in the same engine that transcribes
+there, so the files land in the storage it reads from (only that page can reach
+Cross-Origin Storage, too). Deleting a model removes it from the browser's
+cache. Files in Cross-Origin Storage stay available to other sites until you
+remove them in the Cross-Origin Storage extension, since the API has no delete
+operation.
 
 ### Language detection
 

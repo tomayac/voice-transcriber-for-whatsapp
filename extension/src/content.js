@@ -330,16 +330,10 @@
     const iframe = await engine;
     if (event.source !== iframe.contentWindow) return;
     const { type, reqId, ...data } = event.data;
-    if (managing.has(reqId)) {
+    const reply = managing.get(reqId);
+    if (reply) {
       if (type !== 'progress') managing.delete(reqId);
-      ext.runtime
-        .sendMessage({
-          type: 'vtw-model-event',
-          event: { type, reqId, ...data },
-        })
-        .catch(() => {
-          // The options page was closed.
-        });
+      reply({ type, reqId, ...data });
       return;
     }
     const id = requests.get(reqId);
@@ -367,24 +361,73 @@
     }
   });
 
-  // Model downloads and deletions requested from the options page run in this
-  // tab's engine, so that they land in the storage it reads from: the options
-  // page may see a different one (a Safari web app keeps its own website
-  // data), and only this page has Cross-Origin Storage.
-  const managing = new Set();
+  // Model downloads and deletions run in this tab's engine, so that they land
+  // in the storage it reads from: the standalone options page may see a
+  // different one (a Safari web app keeps its own website data), and only this
+  // page has Cross-Origin Storage. Request id → function that delivers the
+  // engine's events to whichever settings page asked.
+  const managing = new Map();
 
-  ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.type !== 'vtw-models') return;
-    // Ids come from the options page; Safari may not deliver replies.
-    const reqId = message.reqId ?? `m${nextRequestId++}`;
-    managing.add(reqId);
+  function manage({ command, model, reqId }, reply) {
+    managing.set(reqId, reply);
     getEngine().then((iframe) =>
       iframe.contentWindow.postMessage(
-        { vtw: 'content', type: message.command, reqId, model: message.model },
+        { vtw: 'content', type: command, reqId, model },
         '*',
       ),
     );
-    sendResponse({ reqId });
+  }
+
+  // From the standalone options page. Ids come from there, since Safari may
+  // not deliver replies to `tabs.sendMessage()`.
+  ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message?.type !== 'vtw-models') return;
+    manage(message, (event) =>
+      ext.runtime.sendMessage({ type: 'vtw-model-event', event }).catch(() => {
+        // The options page was closed.
+      }),
+    );
+    sendResponse({ reqId: message.reqId });
+  });
+
+  // The settings, opened inside WhatsApp. In a Safari web app, this is the
+  // only way to reach them: the app shares neither storage nor messaging with
+  // Safari's own windows.
+  let settingsDialog = null;
+
+  function openSettings() {
+    if (!settingsDialog) {
+      settingsDialog = document.createElement('dialog');
+      settingsDialog.className = 'vtw-settings';
+      const frame = document.createElement('iframe');
+      frame.src = `${ext.runtime.getURL('src/options.html')}?embedded`;
+      frame.title = 'Voice Transcriber for WhatsApp settings';
+      const close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'vtw-settings-close';
+      close.setAttribute('aria-label', 'Close settings');
+      close.textContent = '×';
+      close.addEventListener('click', () => settingsDialog.close());
+      // A click on the backdrop lands on the dialog itself.
+      settingsDialog.addEventListener('click', (event) => {
+        if (event.target === settingsDialog) settingsDialog.close();
+      });
+      settingsDialog.append(frame, close);
+      document.documentElement.append(settingsDialog);
+    }
+    settingsDialog.showModal();
+  }
+
+  window.addEventListener('message', (event) => {
+    const frame = settingsDialog?.querySelector('iframe');
+    if (!frame || event.source !== frame.contentWindow) return;
+    if (event.data?.vtw !== 'settings') return;
+    manage(event.data, (modelEvent) =>
+      frame.contentWindow.postMessage(
+        { vtw: 'model-event', event: modelEvent },
+        '*',
+      ),
+    );
   });
 
   async function transcribe(id) {
@@ -420,6 +463,8 @@
     transcribe:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h10v2H4z"/></svg>',
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2m0 16H8V7h11z"/></svg>',
+    settings:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94a7.5 7.5 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54a7.4 7.4 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.6 7.6 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.12.22.38.3.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.04.24.25.42.49.42h3.84c.24 0 .45-.18.49-.42l.36-2.54a7 7 0 0 0 1.62-.94l2.39.96c.22.08.48 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7"/></svg>',
     redo: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.74 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/></svg>',
   };
 
@@ -476,7 +521,13 @@
         transcribe(id),
       );
       start.append(state ? 'Try again' : 'Transcribe');
-      card.append(start);
+      const actions = document.createElement('div');
+      actions.className = 'vtw-actions';
+      actions.append(
+        start,
+        button('vtw-icon', 'settings', 'Transcriber settings', openSettings),
+      );
+      card.append(actions);
       if (state) {
         const error = document.createElement('p');
         error.className = 'vtw-error';
@@ -518,6 +569,7 @@
           setTimeout(() => element.classList.remove('vtw-done'), 1000);
         }),
         button('vtw-icon', 'redo', 'Transcribe again', () => transcribe(id)),
+        button('vtw-icon', 'settings', 'Transcriber settings', openSettings),
       );
       card.append(text, meta);
     }

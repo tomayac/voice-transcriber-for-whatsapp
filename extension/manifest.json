@@ -26,7 +26,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/engine.html", "src/main-world.js"],
+      "resources": ["src/engine.html", "src/options.html", "src/main-world.js"],
       "matches": ["https://web.whatsapp.com/*"]
     }
   ],

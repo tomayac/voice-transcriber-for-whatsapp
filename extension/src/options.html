@@ -1,0 +1,106 @@
+<!--
+  SPDX-FileCopyrightText: 2026 Thomas Steiner
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Voice Transcriber settings</title>
+    <link rel="stylesheet" href="options.css" />
+    <script type="module" src="options.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Voice Transcriber</h1>
+      <p class="intro">
+        Transcribes WhatsApp Web voice messages on this device. Audio never
+        leaves your computer; the model downloads once from Hugging Face.
+      </p>
+
+      <form id="settings">
+        <fieldset>
+          <legend>Model</legend>
+          <div id="models" class="choices"></div>
+          <p class="hint" id="device-hint"></p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Downloads</legend>
+          <p class="hint" id="downloads-hint"></p>
+          <div id="downloads" class="downloads"></div>
+        </fieldset>
+
+        <fieldset id="fallback-fieldset">
+          <legend>Fallback model</legend>
+          <p class="hint">
+            Voxtral does not report the language it hears. This Whisper model
+            identifies it, and transcribes the messages in languages Voxtral
+            does not cover, such as Catalan. It loads in addition to Voxtral.
+          </p>
+          <select id="fallback" name="fallbackModel"></select>
+        </fieldset>
+
+        <fieldset>
+          <legend>Languages</legend>
+          <p class="hint">
+            Language detection picks among these. Limiting it to the languages
+            you actually receive avoids mix-ups between close languages, like
+            Catalan and Spanish. With none selected, all languages count.
+          </p>
+          <div id="languages" class="chips"></div>
+          <label class="add-language">
+            Add a language
+            <select id="add-language"></select>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Behavior</legend>
+          <label class="row">
+            <input type="checkbox" name="autoTranscribeOnPlay" />
+            Transcribe voice messages automatically when I play them
+          </label>
+          <label class="row">
+            <input type="checkbox" name="useCrossOriginStorage" />
+            Store models with Cross-Origin Storage when available
+          </label>
+          <p class="hint">
+            With the
+            <a href="https://goo.gle/cos-extension" target="_blank"
+              >Cross-Origin Storage extension</a
+            >
+            installed, downloaded models are kept in storage that other sites
+            using the same models can share, so each model downloads once per
+            browser.
+          </p>
+          <label class="row">
+            Compute on
+            <select name="device">
+              <option value="auto">Best available</option>
+              <option value="webgpu">GPU (WebGPU)</option>
+              <option value="wasm">CPU (WebAssembly)</option>
+            </select>
+          </label>
+          <label class="row">
+            Free the model’s memory after
+            <select name="idleUnloadMinutes">
+              <option value="2">2 minutes</option>
+              <option value="10">10 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="0">never</option>
+            </select>
+            without use
+          </label>
+        </fieldset>
+      </form>
+
+      <section class="danger">
+        <button type="button" id="clear">Delete saved transcripts</button>
+        <output id="clear-status"></output>
+      </section>
+    </main>
+  </body>
+</html>

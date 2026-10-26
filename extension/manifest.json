@@ -1,0 +1,63 @@
+{
+  "manifest_version": 3,
+  "name": "Voice Transcriber for WhatsApp Web",
+  "short_name": "Voice Transcriber",
+  "version": "0.1.0",
+  "description": "Transcribes WhatsApp Web voice messages on device with Whisper or Voxtral Realtime, detecting the spoken language.",
+  "permissions": ["storage", "unlimitedStorage", "scripting"],
+  "host_permissions": [
+    "https://web.whatsapp.com/*",
+    "https://huggingface.co/*",
+    "https://*.hf.co/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["src/main-world.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["src/content.js"],
+      "css": ["src/content.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/engine.html", "src/main-world.js"],
+      "matches": ["https://web.whatsapp.com/*"]
+    }
+  ],
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": true
+  },
+  "action": {
+    "default_title": "Voice Transcriber settings",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png",
+    "512": "icons/icon-512.png"
+  },
+  "cross_origin_embedder_policy": {
+    "value": "require-corp"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

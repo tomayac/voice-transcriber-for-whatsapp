@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- SPDX-FileCopyrightText: 2026 Thomas Steiner -->
+  <!-- SPDX-License-Identifier: Apache-2.0 -->
+  <rect width="128" height="128" rx="28" fill="#00a884"/>
+  <path d="M30 30h68a10 10 0 0 1 10 10v40a10 10 0 0 1-10 10H58l-20 16v-16h-8a10 10 0 0 1-10-10V40a10 10 0 0 1 10-10z" fill="#fff"/>
+  <g fill="#00a884">
+    <rect x="36" y="54" width="6" height="12" rx="3"/>
+    <rect x="47" y="46" width="6" height="28" rx="3"/>
+    <rect x="58" y="50" width="6" height="20" rx="3"/>
+    <rect x="72" y="47" width="22" height="5" rx="2.5"/>
+    <rect x="72" y="58" width="22" height="5" rx="2.5"/>
+    <rect x="72" y="69" width="14" height="5" rx="2.5"/>
+  </g>
+</svg>

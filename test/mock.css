@@ -1,0 +1,62 @@
+/*
+  SPDX-FileCopyrightText: 2026 Thomas Steiner
+  SPDX-License-Identifier: Apache-2.0
+*/
+
+body {
+  margin: 0;
+  background: #efeae2;
+  color: #111b21;
+  font:
+    14px/1.4 system-ui,
+    sans-serif;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #f0f2f5;
+  font-weight: 600;
+}
+
+#messages {
+  padding: 16px 0;
+}
+
+[role="row"] {
+  display: flex;
+  padding: 2px 63px;
+}
+
+[role="row"]:has([data-id^="true_"]) {
+  justify-content: flex-end;
+}
+
+.bubble {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 260px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+[data-id^="true_"] .bubble {
+  background: #d9fdd3;
+}
+
+.bubble button {
+  border: 0;
+  background: none;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+[role="slider"] {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: #c8cdd0;
+}

@@ -1,0 +1,19 @@
+{
+  "name": "whatsapp-voice-transcriber",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser extension for Chrome and Safari that transcribes WhatsApp Web voice messages on device.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/vendor.mjs",
+    "vendor": "node scripts/vendor.mjs",
+    "test:build": "node scripts/test-build.mjs",
+    "test:serve": "node test/serve.mjs",
+    "safari": "node scripts/safari.mjs",
+    "format": "prettier --write extension scripts test README.md"
+  },
+  "devDependencies": {
+    "@huggingface/transformers": "4.3.1"
+  }
+}

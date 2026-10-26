@@ -1,0 +1,7 @@
+node_modules/
+extension/vendor/
+build/
+.claude/
+.DS_Store
+xcuserdata/
+safari/

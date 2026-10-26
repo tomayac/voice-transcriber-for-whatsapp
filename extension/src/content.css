@@ -1,0 +1,136 @@
+/*
+  SPDX-FileCopyrightText: 2026 Thomas Steiner
+  SPDX-License-Identifier: Apache-2.0
+*/
+
+.wvt-engine {
+  position: fixed;
+  inset: auto 0 0 auto;
+  width: 0;
+  height: 0;
+  border: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.wvt {
+  --wvt-accent: #00a884;
+  display: flex;
+  padding: 0 63px 6px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: inherit;
+}
+
+.wvt[data-direction="out"] {
+  justify-content: flex-end;
+}
+
+.wvt-card {
+  box-sizing: border-box;
+  max-width: min(65%, 560px);
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.wvt-card p {
+  margin: 0;
+}
+
+.wvt button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.wvt svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  flex: none;
+}
+
+.wvt-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--wvt-accent) !important;
+  font-weight: 500 !important;
+}
+
+.wvt-status {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+.wvt-status::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-inline-end: 6px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: wvt-spin 0.8s linear infinite;
+}
+
+@keyframes wvt-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.wvt-text {
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.wvt-status + .wvt-text {
+  opacity: 0.7;
+}
+
+.wvt-error {
+  color: #ea0038;
+}
+
+.wvt-meta {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  opacity: 0.65;
+}
+
+.wvt-meta span {
+  margin-inline-end: auto;
+  padding-inline-end: 8px;
+}
+
+.wvt-icon {
+  display: inline-flex;
+  padding: 3px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+}
+
+.wvt-icon:hover {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.wvt-icon.wvt-done {
+  color: var(--wvt-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wvt-status::before {
+    animation: none;
+  }
+}

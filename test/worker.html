@@ -1,0 +1,60 @@
+<!--
+  SPDX-FileCopyrightText: 2026 Thomas Steiner
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Worker harness</title>
+  </head>
+  <body>
+    <pre id="log"></pre>
+    <script type="module">
+      // Runs the engine's decoding and the inference worker outside of an
+      // extension, to debug them in browsers where loading the extension is
+      // inconvenient. Serve the repository root and open
+      // /test/worker.html?model=whisper-base&lang=ca.
+      import { DEFAULT_SETTINGS } from '../extension/src/shared.js';
+
+      const params = new URLSearchParams(location.search);
+      const log = (...items) => {
+        document.querySelector('#log').textContent +=
+          items
+            .map((i) => (typeof i === 'string' ? i : JSON.stringify(i)))
+            .join(' ') + '\n';
+      };
+      window.results = [];
+      try {
+        const data = await (
+          await fetch(`audio/${params.get('lang') ?? 'en'}.ogg`)
+        ).arrayBuffer();
+        const context = new OfflineAudioContext(1, 1, 16000);
+        const audio = (await context.decodeAudioData(data)).getChannelData(0);
+        log('decoded', audio.length);
+        const worker = new Worker('../extension/src/worker.js', {
+          type: 'module',
+        });
+        worker.onerror = (event) => log('worker error', event.message ?? '');
+        worker.onmessage = ({ data }) => {
+          if (data.type !== 'progress' || data.stage !== 'download') log(data);
+          if (data.type === 'result' || data.type === 'error')
+            window.results.push(data);
+        };
+        worker.postMessage({ type: 'init', crossOriginStorage: false });
+        worker.postMessage({
+          type: 'transcribe',
+          reqId: 1,
+          audio,
+          settings: {
+            ...DEFAULT_SETTINGS,
+            model: params.get('model') ?? 'whisper-base',
+          },
+        });
+      } catch (error) {
+        log('page error', `${error.name}: ${error.message}`, error.stack ?? '');
+        window.results.push({ type: 'error', message: error.message });
+      }
+    </script>
+  </body>
+</html>

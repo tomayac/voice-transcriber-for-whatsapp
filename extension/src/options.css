@@ -1,0 +1,230 @@
+/*
+  SPDX-FileCopyrightText: 2026 Thomas Steiner
+  SPDX-License-Identifier: Apache-2.0
+*/
+
+:root {
+  --bg: #f7f5f3;
+  --surface: #ffffff;
+  --text: #111b21;
+  --muted: #54656f;
+  --border: #d9dee0;
+  --accent: #008069;
+  --accent-soft: #d9fdd3;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b141a;
+    --surface: #111b21;
+    --text: #e9edef;
+    --muted: #8696a0;
+    --border: #2a3942;
+    --accent: #00a884;
+    --accent-soft: #103529;
+    color-scheme: dark;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    15px/1.5 system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 32px 16px 48px;
+}
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+}
+
+.intro,
+.hint {
+  color: var(--muted);
+}
+
+.hint {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+}
+
+a {
+  color: var(--accent);
+}
+
+fieldset {
+  margin: 0 0 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+fieldset[hidden] {
+  display: none;
+}
+
+legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+.choices {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.choice:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.choice input {
+  grid-row: span 2;
+  margin-top: 4px;
+  accent-color: var(--accent);
+}
+
+.choice span {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.chip {
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip::after {
+  content: " ×";
+  color: var(--muted);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.row input {
+  accent-color: var(--accent);
+}
+
+select,
+button {
+  font: inherit;
+}
+
+select {
+  max-width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+}
+
+.danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+#clear {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+
+output {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.downloads {
+  display: grid;
+  gap: 8px;
+}
+
+.download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.download div {
+  flex: 1 1 220px;
+}
+
+.download span {
+  display: block;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.download .error {
+  color: #ea0038;
+}
+
+.download button {
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+
+.download button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}

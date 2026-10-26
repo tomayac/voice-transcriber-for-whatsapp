@@ -28,22 +28,24 @@ const pageOrigin = (() => {
 const toPage = (message) =>
   parent.postMessage({ vtw: 'engine', ...message }, pageOrigin);
 
-// Cross-Origin Storage requests travel worker → here → page main world.
-const cosPending = new Map();
-let cosNextId = -1;
+// Storage requests travel worker → here → page main world: model storage in
+// the page's origin, and Cross-Origin Storage.
+const pagePending = new Map();
+let pageNextId = -1;
 
-function cosToPage(message) {
-  parent.postMessage({ vtw: 'engine-cos', ...message }, pageOrigin);
+function requestPage(message) {
+  parent.postMessage({ vtw: 'engine-page', ...message }, pageOrigin);
 }
 
-function pingCrossOriginStorage() {
-  const id = cosNextId--;
+// What the page offers. Nothing, if the main-world script is missing because
+// injection failed.
+function pingPage() {
+  const id = pageNextId--;
   return new Promise((resolve) => {
-    cosPending.set(id, ({ available }) => resolve(!!available));
-    cosToPage({ id, op: 'ping' });
-    // The main-world script is missing if injection failed: no bridge then.
+    pagePending.set(id, resolve);
+    requestPage({ id, op: 'ping' });
     setTimeout(() => {
-      if (cosPending.delete(id)) resolve(false);
+      if (pagePending.delete(id)) resolve({});
     }, 2000);
   });
 }
@@ -99,9 +101,9 @@ async function startWorker(settings) {
   worker.addEventListener('message', ({ data }) => {
     lastAlive = Date.now();
     if (data.type === 'alive') return;
-    if (data.type === 'cos') {
+    if (data.type === 'page') {
       const { type, ...request } = data;
-      cosToPage(request);
+      requestPage(request);
       return;
     }
     if (FINAL.has(data.type)) {
@@ -116,9 +118,13 @@ async function startWorker(settings) {
     // for running out of memory.
     failAll(event.message || 'The transcriber crashed.');
   });
-  const crossOriginStorage =
-    settings.useCrossOriginStorage && (await pingCrossOriginStorage());
-  worker.postMessage({ type: 'init', crossOriginStorage });
+  const page = await pingPage();
+  worker.postMessage({
+    type: 'init',
+    crossOriginStorage:
+      settings.useCrossOriginStorage && !!page.crossOriginStorage,
+    pageStorage: !!page.caches,
+  });
   return worker;
 }
 
@@ -195,13 +201,13 @@ addEventListener('message', (event) => {
   if (event.source !== parent) return;
   if (pageOrigin !== '*' && event.origin !== pageOrigin) return;
   const message = event.data;
-  if (message?.vtw === 'cos-reply') {
+  if (message?.vtw === 'page-reply') {
     const { vtw, ...reply } = message;
     if (reply.id < 0) {
-      cosPending.get(reply.id)?.(reply);
-      cosPending.delete(reply.id);
+      pagePending.get(reply.id)?.(reply);
+      pagePending.delete(reply.id);
     } else {
-      worker?.postMessage({ type: 'cos-reply', ...reply });
+      worker?.postMessage({ type: 'page-reply', ...reply });
     }
   } else if (message?.vtw === 'content') {
     const { vtw, ...request } = message;

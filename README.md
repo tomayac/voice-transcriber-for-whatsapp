@@ -95,6 +95,23 @@ web.whatsapp.com
 - **Transcripts** are kept in `storage.local`, keyed by message ID, so they
   reappear when you scroll back or reload.
 
+### Model storage
+
+Models are stored in Cache Storage of the WhatsApp page's origin
+(`web.whatsapp.com`), in caches named `voice-transcriber-models` and
+`voice-transcriber-downloads`, which `main-world.js` reads and writes for the
+engine. The extension's own origin would be the obvious place, but Safari gives
+an extension a new origin with every launch and leaves that origin's Cache
+Storage behind
+([WebKit bug 259637](https://bugs.webkit.org/show_bug.cgi?id=259637)), so the
+models would download again after every restart or update. The `storage`
+extension API, which Apple suggests for extension data
+([WECG minutes, 2023-05-11](https://github.com/w3c/webextensions/blob/main/_minutes/2023-05-11-wecg.md)),
+only holds JSON, a poor fit for gigabytes of weights. The bridge only reaches
+those two caches, never the ones WhatsApp keeps. Models that an earlier version
+cached in the extension's origin move over when first used. Clearing WhatsApp's
+site data removes the models, too.
+
 ### Cross-Origin Storage
 
 With **Store models with Cross-Origin Storage** on (the default), the worker

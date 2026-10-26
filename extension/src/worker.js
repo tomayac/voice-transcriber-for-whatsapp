@@ -33,40 +33,39 @@ env.backends.onnx.wasm.wasmPaths = {
   ).href,
 };
 
-// Cross-Origin Storage bridge. The COS extension only defines
-// `navigator.crossOriginStorage` in web pages, never in another extension's
-// pages or workers, so this shim forwards each call to the WhatsApp page, where
-// the polyfill (or a native implementation) lives. It covers the subset that
-// Transformers.js uses: `requestFileHandle()`, `getFile()`, and
-// `createWritable()`.
+// The WhatsApp page, reached through the engine and `main-world.js`. It
+// stores the models (see "Model storage" below) and hosts Cross-Origin
+// Storage.
 
-const cosPending = new Map();
-let cosNextId = 1;
+const pagePending = new Map();
+let pageNextId = 1;
 
-// A COS call that never settles would stall the model load for good, while a
+// A call that never settles would stall the model load for good, while a
 // rejected one only makes Transformers.js fall back to the network. Writes get
-// time in proportion to their size, since the page hashes what it stores.
-function cosTimeout(op, data) {
-  if (op === 'write') return 60_000 + data.blob.size / 10_000;
-  return op === 'getFile' ? 120_000 : 30_000;
+// time in proportion to their size.
+function pageTimeout(op, data) {
+  if (op === 'write' || op === 'cache-put') {
+    return 60_000 + data.blob.size / 10_000;
+  }
+  return op === 'getFile' || op === 'cache-match' ? 120_000 : 30_000;
 }
 
-function cosRequest(op, data = {}) {
-  const id = cosNextId++;
+function pageRequest(op, data = {}) {
+  const id = pageNextId++;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => {
-        cosPending.delete(id);
+        pagePending.delete(id);
         reject(
           new DOMException(
-            `Cross-Origin Storage ${op} timed out.`,
+            `The WhatsApp page did not answer (${op}).`,
             'TimeoutError',
           ),
         );
       },
-      cosTimeout(op, data),
+      pageTimeout(op, data),
     );
-    cosPending.set(id, {
+    pagePending.set(id, {
       resolve: (value) => {
         clearTimeout(timer);
         resolve(value);
@@ -76,14 +75,14 @@ function cosRequest(op, data = {}) {
         reject(error);
       },
     });
-    postMessage({ type: 'cos', id, op, ...data });
+    postMessage({ type: 'page', id, op, ...data });
   });
 }
 
-function cosReply({ id, error, ...data }) {
-  const pending = cosPending.get(id);
+function pageReply({ id, error, ...data }) {
+  const pending = pagePending.get(id);
   if (!pending) return;
-  cosPending.delete(id);
+  pagePending.delete(id);
   if (error) {
     pending.reject(new DOMException(error.message, error.name));
   } else {
@@ -91,11 +90,18 @@ function cosReply({ id, error, ...data }) {
   }
 }
 
+// Cross-Origin Storage. The COS extension only defines
+// `navigator.crossOriginStorage` in web pages, never in another extension's
+// pages or workers, so this shim forwards each call to the WhatsApp page,
+// where the polyfill (or a native implementation) lives. It covers the subset
+// that Transformers.js uses: `requestFileHandle()`, `getFile()`, and
+// `createWritable()`.
+
 function installCrossOriginStorageShim() {
   const fileHandle = (handleId) => ({
     kind: 'file',
     async getFile() {
-      const { file } = await cosRequest('getFile', { handleId });
+      const { file } = await pageRequest('getFile', { handleId });
       return file;
     },
     async createWritable() {
@@ -107,7 +113,7 @@ function installCrossOriginStorageShim() {
           parts.push(data);
         },
         async close() {
-          await cosRequest('write', { handleId, blob: new Blob(parts) });
+          await pageRequest('write', { handleId, blob: new Blob(parts) });
         },
         async abort() {
           parts.length = 0;
@@ -116,7 +122,7 @@ function installCrossOriginStorageShim() {
     },
   });
   const getFileHandle = async (hash, options = {}) => {
-    const { handleId } = await cosRequest('getFileHandle', {
+    const { handleId } = await pageRequest('getFileHandle', {
       hash,
       options,
     });
@@ -126,6 +132,93 @@ function installCrossOriginStorageShim() {
     configurable: true,
     value: { getFileHandle, requestFileHandle: getFileHandle },
   });
+}
+
+// Model storage. Safari gives the extension a new origin with every launch
+// (https://bugs.webkit.org/show_bug.cgi?id=259637) and leaves its Cache
+// Storage behind, so models cached in this worker's origin would download
+// again after every restart or update. The WhatsApp page's origin stays put,
+// so models go there when the page can be reached, and Cross-Origin Storage
+// takes precedence over both.
+
+const MODEL_FILES = 'voice-transcriber-models';
+const MARKERS = 'voice-transcriber-downloads';
+
+const localStore = (name) => ({
+  async match(url) {
+    return (await caches.open(name)).match(url);
+  },
+  async put(url, response) {
+    await (await caches.open(name)).put(url, response);
+  },
+  async delete(url) {
+    return (await caches.open(name)).delete(url);
+  },
+  async list(prefix) {
+    const cache = await caches.open(name);
+    const entries = [];
+    for (const request of await cache.keys()) {
+      if (!request.url.includes(prefix)) continue;
+      // Only the headers: the bodies run to gigabytes.
+      const response = await cache.match(request);
+      const size = Number(response?.headers.get('content-length')) || 0;
+      entries.push({ url: request.url, size });
+    }
+    return entries;
+  },
+});
+
+const pageStore = (name) => ({
+  async match(url) {
+    const { blob, headers } = await pageRequest('cache-match', {
+      cache: name,
+      url,
+    });
+    return blob ? new Response(blob, { headers }) : undefined;
+  },
+  async put(url, response) {
+    const blob = await response.blob();
+    await pageRequest('cache-put', {
+      cache: name,
+      url,
+      blob,
+      headers: [...response.headers],
+    });
+  },
+  async delete(url) {
+    return (await pageRequest('cache-delete', { cache: name, url })).deleted;
+  },
+  async list(prefix) {
+    return (await pageRequest('cache-list', { cache: name, prefix })).entries;
+  },
+});
+
+// Where Transformers.js caches by default, and where earlier versions of this
+// extension kept the models.
+const workerFiles = localStore(env.cacheKey);
+let modelFiles = workerFiles;
+let markers = localStore(MARKERS);
+
+function usePageStorage() {
+  modelFiles = pageStore(MODEL_FILES);
+  markers = pageStore(MARKERS);
+  env.useCustomCache = true;
+  env.customCache = {
+    async match(url) {
+      const stored = await modelFiles.match(url);
+      if (stored) return stored;
+      // Move a file an earlier version cached in this worker's origin. That
+      // helps in Chrome; in Safari, the origin has usually changed since.
+      const old = await workerFiles.match(url);
+      if (!old) return undefined;
+      const blob = await old.blob();
+      const headers = [...old.headers];
+      await modelFiles.put(url, new Response(blob, { headers }));
+      await workerFiles.delete(url);
+      return new Response(blob, { headers });
+    },
+    put: (url, response) => modelFiles.put(url, response),
+  };
 }
 
 // Device selection.
@@ -198,15 +291,18 @@ function progressReporter(modelId, label, files) {
 // fetched are really there. (With Cross-Origin Storage, it records small
 // files like `config.json` in the background, so those may not show yet.)
 async function missingFiles(spec, files) {
-  const store = await caches.open(
-    env.experimental_useCrossOriginStorage ? HASH_CACHE : env.cacheKey,
+  const store = env.experimental_useCrossOriginStorage
+    ? localStore(HASH_CACHE)
+    : modelFiles;
+  const stored = new Set(
+    (await store.list(`/${spec.repo}/`)).map((entry) => entry.url),
   );
-  const missing = [];
-  for (const file of [...files].filter((f) => f.startsWith('onnx/'))) {
-    const url = `${env.remoteHost}${spec.repo}/resolve/main/${file}`;
-    if (!(await store.match(url))) missing.push(file);
-  }
-  return missing;
+  return [...files]
+    .filter((file) => file.startsWith('onnx/'))
+    .filter(
+      (file) =>
+        !stored.has(`${env.remoteHost}${spec.repo}/resolve/main/${file}`),
+    );
 }
 
 async function loadModel(modelId, preference) {
@@ -266,34 +362,29 @@ async function loadModel(modelId, preference) {
 // shim, Cross-Origin Storage) without saying whether a model is complete, so a
 // marker records each model that loaded successfully.
 
-const MARKERS = 'voice-transcriber-downloads';
 const markerUrl = (modelId, deviceKey) =>
   `https://voice-transcriber.invalid/${modelId}/${deviceKey}`;
 
 async function markDownloaded(modelId, deviceKey) {
-  const markers = await caches.open(MARKERS);
   await markers.put(markerUrl(modelId, deviceKey), new Response(''));
 }
 
 async function modelsStatus(preference) {
   const deviceKey = await resolveDevice(preference).catch(() => 'wasm');
-  const [files, hashes, markers] = await Promise.all(
-    [env.cacheKey, HASH_CACHE, MARKERS].map((name) => caches.open(name)),
-  );
-  const [fileKeys, hashKeys] = await Promise.all([files.keys(), hashes.keys()]);
+  const [files, hashes, marked] = await Promise.all([
+    modelFiles.list('/'),
+    localStore(HASH_CACHE).list('/'),
+    markers.list('/'),
+  ]);
   const status = {};
   for (const [id, spec] of Object.entries(MODELS)) {
     const prefix = `/${spec.repo}/`;
-    let bytes = 0;
-    for (const key of fileKeys.filter((k) => k.url.includes(prefix))) {
-      // Only the headers: the bodies run to gigabytes.
-      const response = await files.match(key);
-      bytes += Number(response?.headers.get('content-length')) || 0;
-    }
     status[id] = {
-      bytes,
-      inCrossOriginStorage: hashKeys.some((k) => k.url.includes(prefix)),
-      complete: !!(await markers.match(markerUrl(id, deviceKey))),
+      bytes: files
+        .filter((entry) => entry.url.includes(prefix))
+        .reduce((sum, entry) => sum + entry.size, 0),
+      inCrossOriginStorage: hashes.some((entry) => entry.url.includes(prefix)),
+      complete: marked.some((entry) => entry.url === markerUrl(id, deviceKey)),
       available: !!spec.dtype[deviceKey],
     };
   }
@@ -330,15 +421,16 @@ async function deleteModel({ model }) {
       .filter((id) => id !== model),
   );
   const prefix = `/${MODELS[model].repo}/`;
-  for (const name of [env.cacheKey, HASH_CACHE]) {
-    const cache = await caches.open(name);
-    for (const key of await cache.keys()) {
-      if (key.url.includes(prefix)) await cache.delete(key);
-    }
+  // Also any copy left in this worker's origin by an earlier version.
+  for (const store of new Set([
+    modelFiles,
+    workerFiles,
+    localStore(HASH_CACHE),
+  ])) {
+    for (const { url } of await store.list(prefix)) await store.delete(url);
   }
-  const markers = await caches.open(MARKERS);
-  for (const key of await markers.keys()) {
-    if (key.url.includes(`/${model}/`)) await markers.delete(key);
+  for (const { url } of await markers.list(`/${model}/`)) {
+    await markers.delete(url);
   }
 }
 
@@ -584,13 +676,18 @@ setInterval(() => postMessage({ type: 'alive' }), 5000);
 addEventListener('message', ({ data }) => {
   switch (data.type) {
     case 'init':
+      // Cross-Origin Storage wins; Transformers.js would otherwise prefer a
+      // custom cache over it.
       if (data.crossOriginStorage) {
         installCrossOriginStorageShim();
         env.experimental_useCrossOriginStorage = true;
+      } else if (data.pageStorage) {
+        usePageStorage();
       }
+      if (data.pageStorage) markers = pageStore(MARKERS);
       break;
-    case 'cos-reply':
-      cosReply(data);
+    case 'page-reply':
+      pageReply(data);
       break;
     case 'transcribe':
       enqueue(data, async () => {

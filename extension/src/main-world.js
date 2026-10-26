@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Thomas Steiner
 // SPDX-License-Identifier: Apache-2.0
 
-// Runs in WhatsApp's own JavaScript world, for two jobs.
+// Runs in WhatsApp's own JavaScript world, for three jobs.
 //
 // 1. Capturing voice messages. WhatsApp downloads and decrypts a voice message
 //    when its play button is pressed, then plays the result from a `blob:` URL
@@ -11,7 +11,11 @@
 //    script arms a capture and presses the message's play button; the
 //    captured playback is muted and stopped right away.
 //
-// 2. Bridging Cross-Origin Storage. The engine iframe has an extension origin,
+// 2. Storing the models. Safari gives the extension a new origin with every
+//    launch and leaves that origin's Cache Storage behind, so the engine keeps
+//    models in this page's origin, which stays put, through this script.
+//
+// 3. Bridging Cross-Origin Storage. The engine iframe has an extension origin,
 //    where the COS extension's `navigator.crossOriginStorage` does not exist,
 //    so it asks this page to make the calls on its behalf.
 
@@ -131,16 +135,59 @@
     return originalDecodeAudioData.apply(this, arguments);
   };
 
-  // Cross-Origin Storage bridge.
+  // Storage bridge. Only the extension's own caches can be reached through
+  // it, never the ones WhatsApp keeps.
+
+  const CACHES = new Set([
+    'voice-transcriber-models',
+    'voice-transcriber-downloads',
+  ]);
+  const pageCaches = window.caches;
+
+  function openCache(name) {
+    if (!CACHES.has(name)) throw new Error(`Unknown cache “${name}”.`);
+    return pageCaches.open(name);
+  }
 
   const handles = new Map();
   let nextHandleId = 1;
 
-  async function crossOriginStorage(op, message) {
+  async function pageOperation(op, message) {
     const cos = navigator.crossOriginStorage;
     switch (op) {
       case 'ping':
-        return { available: !!cos };
+        return { crossOriginStorage: !!cos, caches: !!pageCaches };
+      case 'cache-match': {
+        const response = await (
+          await openCache(message.cache)
+        ).match(message.url);
+        if (!response) return {};
+        return { blob: await response.blob(), headers: [...response.headers] };
+      }
+      case 'cache-put': {
+        const cache = await openCache(message.cache);
+        await cache.put(
+          message.url,
+          new Response(message.blob, { headers: message.headers }),
+        );
+        return {};
+      }
+      case 'cache-delete': {
+        const cache = await openCache(message.cache);
+        return { deleted: await cache.delete(message.url) };
+      }
+      case 'cache-list': {
+        const cache = await openCache(message.cache);
+        const entries = [];
+        for (const request of await cache.keys()) {
+          if (!request.url.includes(message.prefix)) continue;
+          // Only the headers: the bodies run to gigabytes.
+          const response = await cache.match(request);
+          const size = Number(response?.headers.get('content-length')) || 0;
+          entries.push({ url: request.url, size });
+        }
+        return { entries };
+      }
       case 'getFileHandle': {
         // `requestFileHandle()` is the older name of the same method.
         const getFileHandle = cos.getFileHandle ?? cos.requestFileHandle;
@@ -178,19 +225,19 @@
       if (message.type === 'disarm') armed = null;
       return;
     }
-    if (message?.vtw !== 'engine-cos') return;
+    if (message?.vtw !== 'engine-page') return;
     const engine = document.querySelector('iframe[data-vtw-engine]');
     if (!engine || event.source !== engine.contentWindow) return;
     let reply;
     try {
-      reply = await crossOriginStorage(message.op, message);
+      reply = await pageOperation(message.op, message);
     } catch (error) {
       reply = { error: { name: error.name, message: error.message } };
     }
     // Not `event.origin`: Safari can report the extension's origin in a form
     // `postMessage()` rejects as a target. `event.source` was checked above.
     event.source.postMessage(
-      { vtw: 'cos-reply', id: message.id, ...reply },
+      { vtw: 'page-reply', id: message.id, ...reply },
       '*',
     );
   });

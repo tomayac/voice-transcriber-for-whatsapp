@@ -375,7 +375,8 @@
 
   ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message?.type !== 'wvt-models') return;
-    const reqId = `m${nextRequestId++}`;
+    // Ids come from the options page; Safari may not deliver replies.
+    const reqId = message.reqId ?? `m${nextRequestId++}`;
     managing.add(reqId);
     getEngine().then((iframe) =>
       iframe.contentWindow.postMessage(

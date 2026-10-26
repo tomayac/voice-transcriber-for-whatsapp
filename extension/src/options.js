@@ -153,28 +153,57 @@ const formatBytes = (bytes) =>
     ? `${(bytes / 1e9).toFixed(1)} GB`
     : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
 
+let nextRequestId = 1;
+
+// Sends to each WhatsApp tab in turn until one takes the command. The request
+// id is made here and travels with the command, since Safari may not pass a
+// content script's reply back.
 async function sendCommand(command, model) {
-  const [tab] = await ext.tabs.query({ url: contentMatches });
-  if (!tab) {
+  const tabs = await ext.tabs.query({ url: contentMatches });
+  if (!tabs.length) {
     tabProblem =
       'Open WhatsApp Web in this browser to download or delete models.';
+    activity.delete(model);
     renderDownloads();
     return;
   }
-  try {
-    const { reqId } = await ext.tabs.sendMessage(tab.id, {
-      type: 'wvt-models',
-      command,
-      model,
-    });
-    tabProblem = null;
-    requests.set(reqId, { command, model });
-  } catch {
-    // A tab that was open when the extension was installed or updated runs
-    // no content script yet.
-    tabProblem = 'Reload WhatsApp Web, then come back here.';
-    activity.delete(model);
+  const reqId = `o${Date.now()}-${nextRequestId++}`;
+  requests.set(reqId, { command, model, answered: false });
+  const errors = [];
+  for (const tab of tabs) {
+    try {
+      await ext.tabs.sendMessage(tab.id, {
+        type: 'wvt-models',
+        command,
+        model,
+        reqId,
+      });
+      tabProblem = null;
+      renderDownloads();
+      // The first event normally arrives within a second or two; downloads
+      // keep reporting progress after that.
+      setTimeout(() => {
+        const request = requests.get(reqId);
+        if (!request || request.answered) return;
+        requests.delete(reqId);
+        activity.delete(model);
+        tabProblem =
+          'WhatsApp Web took the request but did not answer. Reload it, ' +
+          'then come back here.';
+        renderDownloads();
+      }, 15_000);
+      return;
+    } catch (error) {
+      errors.push(error?.message ?? String(error));
+    }
   }
+  // Typically a tab that was open when the extension was installed or
+  // updated, which runs no content script yet.
+  requests.delete(reqId);
+  activity.delete(model);
+  tabProblem =
+    `Could not reach WhatsApp Web (${[...new Set(errors)].join('; ')}). ` +
+    'Reload it, then come back here.';
   renderDownloads();
 }
 
@@ -185,6 +214,7 @@ ext.runtime.onMessage.addListener((message) => {
   const { type, reqId, ...data } = message.event;
   const request = requests.get(reqId);
   if (!request) return;
+  request.answered = true;
   if (type === 'progress') {
     activity.set(request.model, data);
   } else {

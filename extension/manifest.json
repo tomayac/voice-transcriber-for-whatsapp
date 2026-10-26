@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "Voice Transcriber for WhatsApp Web",
+  "name": "Voice Transcriber for WhatsApp",
   "short_name": "Voice Transcriber",
   "version": "0.1.0",
-  "description": "Transcribes WhatsApp Web voice messages on device with Whisper or Voxtral Realtime, detecting the spoken language.",
+  "description": "Transcribes WhatsApp Web voice messages on device with Whisper or Voxtral Realtime, detecting the spoken language. Not affiliated with WhatsApp.",
   "permissions": ["storage", "unlimitedStorage", "scripting"],
   "host_permissions": [
     "https://web.whatsapp.com/*",
@@ -35,7 +35,7 @@
     "open_in_tab": true
   },
   "action": {
-    "default_title": "Voice Transcriber settings",
+    "default_title": "Voice Transcriber for WhatsApp settings",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

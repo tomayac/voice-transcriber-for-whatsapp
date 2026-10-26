@@ -228,3 +228,9 @@ output {
   background: var(--accent);
   color: #fff;
 }
+
+.disclaimer {
+  margin: 32px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}

@@ -1,5 +1,5 @@
 {
-  "name": "whatsapp-voice-transcriber",
+  "name": "voice-transcriber-for-whatsapp",
   "version": "0.1.0",
   "private": true,
   "description": "Browser extension for Chrome and Safari that transcribes WhatsApp Web voice messages on device.",

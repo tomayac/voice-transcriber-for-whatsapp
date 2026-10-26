@@ -173,7 +173,7 @@ async function sendCommand(command, model) {
   for (const tab of tabs) {
     try {
       await ext.tabs.sendMessage(tab.id, {
-        type: 'wvt-models',
+        type: 'vtw-models',
         command,
         model,
         reqId,
@@ -210,7 +210,7 @@ async function sendCommand(command, model) {
 const refreshDownloads = () => sendCommand('models-status');
 
 ext.runtime.onMessage.addListener((message) => {
-  if (message?.type !== 'wvt-model-event') return;
+  if (message?.type !== 'vtw-model-event') return;
   const { type, reqId, ...data } = message.event;
   const request = requests.get(reqId);
   if (!request) return;

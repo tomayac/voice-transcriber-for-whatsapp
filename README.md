@@ -3,7 +3,7 @@
   SPDX-License-Identifier: Apache-2.0
 -->
 
-# Voice Transcriber for WhatsApp Web
+# Voice Transcriber for WhatsApp
 
 A browser extension for Chrome and Safari that adds a **Transcribe** control
 below every voice message in [WhatsApp Web](https://web.whatsapp.com). The
@@ -15,6 +15,10 @@ The extension identifies the spoken language on its own. You can restrict
 detection to the languages you actually receive (English, German, and Catalan by
 default), which keeps it from confusing close languages such as Catalan and
 Spanish.
+
+> [!NOTE] Voice Transcriber for WhatsApp is an independent project. It is not
+> affiliated with, endorsed by, or sponsored by WhatsApp or Meta. WhatsApp is a
+> trademark of WhatsApp LLC.
 
 ## Models
 
@@ -120,13 +124,13 @@ npm run safari -- --team <your Apple developer team ID>
 
 This generates an Xcode project in `safari/` that references the files in
 `extension/`, builds
-`build/safari/Build/Products/Release/Voice Transcriber.app`, and launches it
-once, which registers the extension. Then enable **Voice Transcriber** in Safari
-› Settings › Extensions, and allow it on web.whatsapp.com. A WhatsApp web app
-made with **Add to Dock** has its own extension settings: open the web app, then
-its app menu › Settings › Extensions. Without a team ID, the app is signed ad
-hoc, and Safari only loads it after Develop › Developer Settings › **Allow
-unsigned extensions**.
+`build/safari/Build/Products/Release/Voice Transcriber for WhatsApp.app`, and
+launches it once, which registers the extension. Then enable **Voice Transcriber
+for WhatsApp** in Safari › Settings › Extensions, and allow it on
+web.whatsapp.com. A WhatsApp web app made with **Add to Dock** has its own
+extension settings: open the web app, then its app menu › Settings › Extensions.
+Without a team ID, the app is signed ad hoc, and Safari only loads it after
+Develop › Developer Settings › **Allow unsigned extensions**.
 
 After changing extension files, rerun `npm run safari` (the project bakes in the
 file list).

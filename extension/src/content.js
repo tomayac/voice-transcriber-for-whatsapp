@@ -89,7 +89,7 @@
 
   // Main world.
 
-  const hasMainWorld = () => !!document.documentElement.dataset.wvtMain;
+  const hasMainWorld = () => !!document.documentElement.dataset.vtwMain;
 
   // Safari ignores `"world": "MAIN"` in the manifest. Ask the background
   // script to inject the file with `scripting.executeScript()` instead, and
@@ -117,7 +117,7 @@
   const mainWorldReady = ensureMainWorld();
 
   const toMain = (message) =>
-    window.postMessage({ wvt: 'content', ...message }, location.origin);
+    window.postMessage({ vtw: 'content', ...message }, location.origin);
 
   const captures = new Map();
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -260,7 +260,7 @@
   }
 
   window.addEventListener('message', (event) => {
-    if (event.source !== window || event.data?.wvt !== 'main') return;
+    if (event.source !== window || event.data?.vtw !== 'main') return;
     const { type, reqId, blob, message } = event.data;
     if (type === 'capture-started') {
       const pending = captures.get(reqId);
@@ -304,14 +304,14 @@
     engine ??= new Promise((resolve) => {
       const iframe = document.createElement('iframe');
       iframe.src = ext.runtime.getURL('src/engine.html');
-      iframe.dataset.wvtEngine = '';
-      iframe.className = 'wvt-engine';
+      iframe.dataset.vtwEngine = '';
+      iframe.className = 'vtw-engine';
       iframe.tabIndex = -1;
       iframe.setAttribute('aria-hidden', 'true');
       const onReady = (event) => {
         if (
           event.source === iframe.contentWindow &&
-          event.data?.wvt === 'engine' &&
+          event.data?.vtw === 'engine' &&
           event.data.type === 'ready'
         ) {
           window.removeEventListener('message', onReady);
@@ -326,7 +326,7 @@
   }
 
   window.addEventListener('message', async (event) => {
-    if (event.data?.wvt !== 'engine' || !engine) return;
+    if (event.data?.vtw !== 'engine' || !engine) return;
     const iframe = await engine;
     if (event.source !== iframe.contentWindow) return;
     const { type, reqId, ...data } = event.data;
@@ -334,7 +334,7 @@
       if (type !== 'progress') managing.delete(reqId);
       ext.runtime
         .sendMessage({
-          type: 'wvt-model-event',
+          type: 'vtw-model-event',
           event: { type, reqId, ...data },
         })
         .catch(() => {
@@ -374,13 +374,13 @@
   const managing = new Set();
 
   ext.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.type !== 'wvt-models') return;
+    if (message?.type !== 'vtw-models') return;
     // Ids come from the options page; Safari may not deliver replies.
     const reqId = message.reqId ?? `m${nextRequestId++}`;
     managing.add(reqId);
     getEngine().then((iframe) =>
       iframe.contentWindow.postMessage(
-        { wvt: 'content', type: message.command, reqId, model: message.model },
+        { vtw: 'content', type: message.command, reqId, model: message.model },
         '*',
       ),
     );
@@ -406,7 +406,7 @@
       // rejects ("The string did not match the expected pattern"). The
       // target is this specific window, and the engine checks the sender.
       iframe.contentWindow.postMessage(
-        { wvt: 'content', type: 'transcribe', reqId, blob },
+        { vtw: 'content', type: 'transcribe', reqId, blob },
         '*',
       );
     } catch (error) {
@@ -469,40 +469,40 @@
   function render(container, id) {
     const state = states.get(id);
     const card = document.createElement('div');
-    card.className = 'wvt-card';
+    card.className = 'vtw-card';
 
     if (!state || state.status === 'error') {
-      const start = button('wvt-start', 'transcribe', 'Transcribe', () =>
+      const start = button('vtw-start', 'transcribe', 'Transcribe', () =>
         transcribe(id),
       );
       start.append(state ? 'Try again' : 'Transcribe');
       card.append(start);
       if (state) {
         const error = document.createElement('p');
-        error.className = 'wvt-error';
+        error.className = 'vtw-error';
         error.textContent = state.message;
         card.append(error);
       }
     } else if (state.status === 'working') {
       const status = document.createElement('p');
-      status.className = 'wvt-status';
+      status.className = 'vtw-status';
       status.setAttribute('role', 'status');
       status.textContent = statusText(state);
       card.append(status);
       if (state.text) {
         const text = document.createElement('p');
-        text.className = 'wvt-text';
+        text.className = 'vtw-text';
         text.dir = 'auto';
         text.textContent = state.text;
         card.append(text);
       }
     } else {
       const text = document.createElement('p');
-      text.className = 'wvt-text';
+      text.className = 'vtw-text';
       text.dir = 'auto';
       text.textContent = state.text || '(No speech recognized.)';
       const meta = document.createElement('div');
-      meta.className = 'wvt-meta';
+      meta.className = 'vtw-meta';
       const label = document.createElement('span');
       label.textContent = [
         state.language && languageName(state.language),
@@ -512,12 +512,12 @@
         .join(' · ');
       meta.append(
         label,
-        button('wvt-icon', 'copy', 'Copy transcript', async (element) => {
+        button('vtw-icon', 'copy', 'Copy transcript', async (element) => {
           await navigator.clipboard.writeText(state.text);
-          element.classList.add('wvt-done');
-          setTimeout(() => element.classList.remove('wvt-done'), 1000);
+          element.classList.add('vtw-done');
+          setTimeout(() => element.classList.remove('vtw-done'), 1000);
         }),
-        button('wvt-icon', 'redo', 'Transcribe again', () => transcribe(id)),
+        button('vtw-icon', 'redo', 'Transcribe again', () => transcribe(id)),
       );
       card.append(text, meta);
     }
@@ -527,7 +527,7 @@
   function update(id, state) {
     states.set(id, state);
     const container = document.querySelector(
-      `.wvt[data-wvt-id="${CSS.escape(id)}"]`,
+      `.vtw[data-vtw-id="${CSS.escape(id)}"]`,
     );
     if (container) render(container, id);
   }
@@ -537,10 +537,10 @@
     // Below the message's whole row, outside of WhatsApp's own bubble markup.
     const anchor = message.closest('[role="row"]') ?? message;
     const next = anchor.nextElementSibling;
-    if (next?.classList.contains('wvt') && next.dataset.wvtId === id) return;
+    if (next?.classList.contains('vtw') && next.dataset.vtwId === id) return;
     const container = document.createElement('div');
-    container.className = 'wvt';
-    container.dataset.wvtId = id;
+    container.className = 'vtw';
+    container.dataset.vtwId = id;
     container.dataset.direction = id.startsWith('true_') ? 'out' : 'in';
     render(container, id);
     anchor.after(container);

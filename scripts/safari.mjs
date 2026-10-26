@@ -18,7 +18,7 @@ import { parseArgs } from 'node:util';
 const root = join(dirname(new URL(import.meta.url).pathname), '..');
 const { values } = parseArgs({ options: { team: { type: 'string' } } });
 const team = values.team ?? process.env.DEVELOPMENT_TEAM;
-const appName = 'Voice Transcriber';
+const appName = 'Voice Transcriber for WhatsApp';
 const bundleId = 'com.tomayac.voicetranscriber';
 
 const run = (command, args) =>

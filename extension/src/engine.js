@@ -26,14 +26,14 @@ const pageOrigin = (() => {
 })();
 
 const toPage = (message) =>
-  parent.postMessage({ wvt: 'engine', ...message }, pageOrigin);
+  parent.postMessage({ vtw: 'engine', ...message }, pageOrigin);
 
 // Cross-Origin Storage requests travel worker → here → page main world.
 const cosPending = new Map();
 let cosNextId = -1;
 
 function cosToPage(message) {
-  parent.postMessage({ wvt: 'engine-cos', ...message }, pageOrigin);
+  parent.postMessage({ vtw: 'engine-cos', ...message }, pageOrigin);
 }
 
 function pingCrossOriginStorage() {
@@ -165,16 +165,16 @@ addEventListener('message', (event) => {
   if (event.source !== parent) return;
   if (pageOrigin !== '*' && event.origin !== pageOrigin) return;
   const message = event.data;
-  if (message?.wvt === 'cos-reply') {
-    const { wvt, ...reply } = message;
+  if (message?.vtw === 'cos-reply') {
+    const { vtw, ...reply } = message;
     if (reply.id < 0) {
       cosPending.get(reply.id)?.(reply);
       cosPending.delete(reply.id);
     } else {
       worker?.postMessage({ type: 'cos-reply', ...reply });
     }
-  } else if (message?.wvt === 'content') {
-    const { wvt, ...request } = message;
+  } else if (message?.vtw === 'content') {
+    const { vtw, ...request } = message;
     if (request.type === 'transcribe') {
       transcribe(request.reqId, request.blob);
     } else if (['models-status', 'download', 'delete'].includes(request.type)) {

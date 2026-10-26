@@ -22,11 +22,11 @@
   if (globalThis.chrome?.runtime?.id || globalThis.browser?.runtime?.id) {
     return;
   }
-  if (document.documentElement.dataset.wvtMain) return;
-  document.documentElement.dataset.wvtMain = '1';
+  if (document.documentElement.dataset.vtwMain) return;
+  document.documentElement.dataset.vtwMain = '1';
 
   const toContent = (message) =>
-    window.postMessage({ wvt: 'main', ...message }, location.origin);
+    window.postMessage({ vtw: 'main', ...message }, location.origin);
 
   // Voice message capture.
 
@@ -173,13 +173,13 @@
 
   window.addEventListener('message', async (event) => {
     const message = event.data;
-    if (message?.wvt === 'content' && event.source === window) {
+    if (message?.vtw === 'content' && event.source === window) {
       if (message.type === 'arm') arm(message.reqId);
       if (message.type === 'disarm') armed = null;
       return;
     }
-    if (message?.wvt !== 'engine-cos') return;
-    const engine = document.querySelector('iframe[data-wvt-engine]');
+    if (message?.vtw !== 'engine-cos') return;
+    const engine = document.querySelector('iframe[data-vtw-engine]');
     if (!engine || event.source !== engine.contentWindow) return;
     let reply;
     try {
@@ -190,7 +190,7 @@
     // Not `event.origin`: Safari can report the extension's origin in a form
     // `postMessage()` rejects as a target. `event.source` was checked above.
     event.source.postMessage(
-      { wvt: 'cos-reply', id: message.id, ...reply },
+      { vtw: 'cos-reply', id: message.id, ...reply },
       '*',
     );
   });

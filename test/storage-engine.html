@@ -1,0 +1,123 @@
+<!--
+  SPDX-FileCopyrightText: 2026 Thomas Steiner
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Storage harness engine</title>
+  </head>
+  <body>
+    <script type="module">
+      // Stands in for `engine.js` in `storage.html`: runs the inference
+      // worker and relays its storage requests to the page, logging each.
+      import { DEFAULT_SETTINGS } from '../extension/src/shared.js';
+
+      const params = new URLSearchParams(location.search);
+      const started = performance.now();
+      const log = (...items) =>
+        (parent.document.querySelector('#log').textContent +=
+          `${((performance.now() - started) / 1000).toFixed(1)}s ` +
+          items
+            .map((i) => (typeof i === 'string' ? i : JSON.stringify(i)))
+            .join(' ') +
+          '\n');
+      const report = (window.report = {
+        written: {},
+        read: {},
+        errors: [],
+        downloads: 0,
+        result: null,
+      });
+      const transferable = (message) => (message.chunk ? [message.chunk] : []);
+      // With `?report`, posts a summary to the server every ten seconds and
+      // at the end, for runs that no test driver polls.
+      const summary = () =>
+        JSON.stringify({
+          run: params.get('report'),
+          model: params.get('model'),
+          seconds: Math.round((performance.now() - started) / 1000),
+          written: report.written,
+          read: report.read,
+          errors: report.errors,
+          result: report.result?.text ?? report.result?.message ?? null,
+        });
+      const send = () =>
+        params.has('report') &&
+        fetch('/report', { method: 'POST', body: summary() }).catch(() => {});
+      setInterval(send, 10_000);
+      const pending = new Map();
+
+      const worker = new Worker('../extension/src/worker.js', {
+        type: 'module',
+      });
+      worker.onerror = (event) => log('worker error', event.message ?? '');
+      worker.onmessage = ({ data }) => {
+        if (data.type === 'alive') return;
+        if (data.type === 'page') {
+          const { type, ...request } = data;
+          pending.set(request.id, request);
+          if (request.op === 'cache-write-chunk') {
+            const name = pending.get(`write-${request.writeId}`);
+            report.written[name] =
+              (report.written[name] ?? 0) + request.chunk.byteLength;
+          }
+          parent.postMessage(
+            { vtw: 'engine-page', ...request },
+            '*',
+            transferable(request),
+          );
+          return;
+        }
+        if (data.type === 'progress' && data.stage === 'download') {
+          report.downloads++;
+          return;
+        }
+        if (data.type === 'result' || data.type === 'error') {
+          report.result = data;
+          send();
+        }
+        log(data);
+      };
+
+      addEventListener('message', ({ data }) => {
+        if (data?.vtw !== 'page-reply') return;
+        const { vtw, ...reply } = data;
+        const request = pending.get(reply.id);
+        pending.delete(reply.id);
+        const file = request?.url?.split('/').slice(-2).join('/');
+        if (reply.writeId) pending.set(`write-${reply.writeId}`, file);
+        if (reply.readId) pending.set(`read-${reply.readId}`, file);
+        if (request?.op === 'cache-read' && reply.chunk) {
+          const name = pending.get(`read-${request.readId}`);
+          report.read[name] = (report.read[name] ?? 0) + reply.chunk.byteLength;
+        }
+        if (reply.error) {
+          report.errors.push({ op: request?.op, ...reply.error });
+          log('error', request?.op, reply.error);
+        }
+        worker.postMessage(
+          { type: 'page-reply', ...reply },
+          transferable(reply),
+        );
+      });
+
+      const audioData = await (await fetch('audio/ca.ogg')).arrayBuffer();
+      const context = new OfflineAudioContext(1, 1, 16000);
+      const audio = (await context.decodeAudioData(audioData)).getChannelData(
+        0,
+      );
+      worker.postMessage({ type: 'init', pageStorage: true });
+      worker.postMessage({
+        type: 'transcribe',
+        reqId: 1,
+        audio,
+        settings: {
+          ...DEFAULT_SETTINGS,
+          model: params.get('model') ?? 'whisper-base',
+        },
+      });
+    </script>
+  </body>
+</html>

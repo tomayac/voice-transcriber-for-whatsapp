@@ -1,0 +1,30 @@
+<!--
+  SPDX-FileCopyrightText: 2026 Thomas Steiner
+  SPDX-License-Identifier: Apache-2.0
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Storage harness</title>
+    <!-- The real page side of the storage bridge. -->
+    <script src="../extension/src/main-world.js"></script>
+  </head>
+  <body>
+    <pre id="log"></pre>
+    <script>
+      // Stores the models in this page's origin the way the extension does
+      // in WhatsApp: the frame plays the engine and runs the inference
+      // worker, and `main-world.js` answers its storage requests. Reload to
+      // check that the second run reads the model from the cache. Serve the
+      // repository root and open /test/storage.html?model=whisper-base.
+      const frame = document.createElement('iframe');
+      frame.dataset.vtwEngine = '';
+      frame.hidden = true;
+      frame.src = `storage-engine.html${location.search}`;
+      document.body.append(frame);
+      // Read by test drivers.
+      window.report = () => frame.contentWindow.report;
+    </script>
+  </body>
+</html>

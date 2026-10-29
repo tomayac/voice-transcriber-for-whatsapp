@@ -152,39 +152,127 @@
   const handles = new Map();
   let nextHandleId = 1;
 
+  // Model files travel in transferred `ArrayBuffer` chunks of 16 MB, and each
+  // chunk is a cache entry of its own, next to an index entry under the file's
+  // URL. WebKit loads a whole cache entry into the reading process, so one
+  // gigabyte-sized entry could take down the WhatsApp tab, and it fails to
+  // store large `Blob` bodies at all. The index goes in last, so a write that
+  // never finished leaves nothing to find.
+  const CHUNK_SIZE = 16 * 1024 * 1024;
+  const PART = '?vtw-part=';
+  const partUrl = (url, index) => `${url}${PART}${index}`;
+  const reads = new Map();
+  const writes = new Map();
+  let nextStreamId = 1;
+
+  async function deleteEntry(cache, url) {
+    // Also parts of a write that never finished, which have no index.
+    for (const request of await cache.keys()) {
+      if (request.url.startsWith(`${url}${PART}`)) await cache.delete(request);
+    }
+    return cache.delete(url);
+  }
+
+  // The index's own size header, or, for a file an earlier version stored
+  // whole, its body's.
+  const entrySize = (response) =>
+    Number(
+      response?.headers.get('x-vtw-size') ??
+        response?.headers.get('content-length'),
+    ) || 0;
+
   async function pageOperation(op, message) {
     const cos = navigator.crossOriginStorage;
     switch (op) {
       case 'ping':
         return { crossOriginStorage: !!cos, caches: !!pageCaches };
       case 'cache-match': {
-        const response = await (
-          await openCache(message.cache)
-        ).match(message.url);
-        if (!response) return {};
-        return { blob: await response.blob(), headers: [...response.headers] };
-      }
-      case 'cache-put': {
         const cache = await openCache(message.cache);
-        await cache.put(
-          message.url,
-          new Response(message.blob, { headers: message.headers }),
+        const response = await cache.match(message.url);
+        if (!response) return {};
+        const readId = nextStreamId++;
+        if (response.headers.has('x-vtw-parts')) {
+          const { headers } = await response.json();
+          const parts = Number(response.headers.get('x-vtw-parts'));
+          reads.set(readId, { cache, url: message.url, parts, next: 0 });
+          return { readId, headers };
+        }
+        // Stored whole, by an earlier version.
+        reads.set(readId, { reader: response.body.getReader() });
+        return { readId, headers: [...response.headers] };
+      }
+      case 'cache-read': {
+        const read = reads.get(message.readId);
+        if (read.reader) {
+          const { value, done } = await read.reader.read();
+          if (done) reads.delete(message.readId);
+          return { chunk: done ? null : value.slice().buffer };
+        }
+        if (read.next >= read.parts) {
+          reads.delete(message.readId);
+          return { chunk: null };
+        }
+        const part = await read.cache.match(partUrl(read.url, read.next++));
+        if (!part) throw new Error('A stored model file is incomplete.');
+        return { chunk: await part.arrayBuffer() };
+      }
+      case 'cache-read-cancel':
+        reads.get(message.readId)?.reader?.cancel();
+        reads.delete(message.readId);
+        return {};
+      case 'cache-write': {
+        const cache = await openCache(message.cache);
+        await deleteEntry(cache, message.url);
+        const writeId = nextStreamId++;
+        writes.set(writeId, {
+          cache,
+          url: message.url,
+          headers: message.headers,
+          parts: 0,
+          size: 0,
+        });
+        return { writeId };
+      }
+      case 'cache-write-chunk': {
+        const write = writes.get(message.writeId);
+        await write.cache.put(
+          partUrl(write.url, write.parts++),
+          new Response(message.chunk),
+        );
+        write.size += message.chunk.byteLength;
+        return {};
+      }
+      case 'cache-write-end': {
+        const write = writes.get(message.writeId);
+        writes.delete(message.writeId);
+        const headers = write.headers.filter(
+          ([name]) => name.toLowerCase() !== 'content-length',
+        );
+        headers.push(['content-length', String(write.size)]);
+        await write.cache.put(
+          write.url,
+          new Response(JSON.stringify({ headers }), {
+            headers: {
+              'content-type': 'application/json',
+              'x-vtw-parts': String(write.parts),
+              'x-vtw-size': String(write.size),
+            },
+          }),
         );
         return {};
       }
       case 'cache-delete': {
         const cache = await openCache(message.cache);
-        return { deleted: await cache.delete(message.url) };
+        return { deleted: await deleteEntry(cache, message.url) };
       }
       case 'cache-list': {
         const cache = await openCache(message.cache);
         const entries = [];
         for (const request of await cache.keys()) {
+          if (request.url.includes(PART)) continue;
           if (!request.url.includes(message.prefix)) continue;
-          // Only the headers: the bodies run to gigabytes.
-          const response = await cache.match(request);
-          const size = Number(response?.headers.get('content-length')) || 0;
-          entries.push({ url: request.url, size });
+          const response = message.sizes ? await cache.match(request) : null;
+          entries.push({ url: request.url, size: entrySize(response) });
         }
         return { entries };
       }
@@ -239,6 +327,7 @@
     event.source.postMessage(
       { vtw: 'page-reply', id: message.id, ...reply },
       '*',
+      reply.chunk ? [reply.chunk] : [],
     );
   });
 })();

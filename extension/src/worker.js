@@ -43,14 +43,14 @@ let pageNextId = 1;
 // A call that never settles would stall the model load for good, while a
 // rejected one only makes Transformers.js fall back to the network. Writes get
 // time in proportion to their size.
+// WebKit's Cache Storage can take many seconds to list or open entries right
+// after storing a gigabyte-sized one, so cache operations get two minutes.
 function pageTimeout(op, data) {
-  if (op === 'write' || op === 'cache-put') {
-    return 60_000 + data.blob.size / 10_000;
-  }
-  return op === 'getFile' || op === 'cache-match' ? 120_000 : 30_000;
+  if (op === 'write') return 60_000 + data.blob.size / 10_000;
+  return op === 'ping' || op === 'getFileHandle' ? 30_000 : 120_000;
 }
 
-function pageRequest(op, data = {}) {
+function pageRequest(op, data = {}, transfer = []) {
   const id = pageNextId++;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -75,7 +75,7 @@ function pageRequest(op, data = {}) {
         reject(error);
       },
     });
-    postMessage({ type: 'page', id, op, ...data });
+    postMessage({ type: 'page', id, op, ...data }, transfer);
   });
 }
 
@@ -154,13 +154,13 @@ const localStore = (name) => ({
   async delete(url) {
     return (await caches.open(name)).delete(url);
   },
-  async list(prefix) {
+  async list(prefix, { sizes = false } = {}) {
     const cache = await caches.open(name);
     const entries = [];
     for (const request of await cache.keys()) {
       if (!request.url.includes(prefix)) continue;
       // Only the headers: the bodies run to gigabytes.
-      const response = await cache.match(request);
+      const response = sizes ? await cache.match(request) : null;
       const size = Number(response?.headers.get('content-length')) || 0;
       entries.push({ url: request.url, size });
     }
@@ -168,28 +168,70 @@ const localStore = (name) => ({
   },
 });
 
+// Files cross over to the page and back in chunks of this size, as transferred
+// `ArrayBuffer`s, and the page streams them into and out of the cache. Safari
+// fails to store a `Blob` body of more than some 100 MB ("Blob loading
+// failed"), and holding a whole model file in a `Blob` would double its
+// memory, too.
+const CHUNK_SIZE = 16 * 1024 * 1024;
+
 const pageStore = (name) => ({
   async match(url) {
-    const { blob, headers } = await pageRequest('cache-match', {
+    const { readId, headers } = await pageRequest('cache-match', {
       cache: name,
       url,
     });
-    return blob ? new Response(blob, { headers }) : undefined;
+    if (!readId) return undefined;
+    const body = new ReadableStream({
+      async pull(controller) {
+        const { chunk } = await pageRequest('cache-read', { readId });
+        if (chunk) controller.enqueue(new Uint8Array(chunk));
+        else controller.close();
+      },
+      cancel() {
+        pageRequest('cache-read-cancel', { readId }).catch(() => {});
+      },
+    });
+    return new Response(body, { headers });
   },
   async put(url, response) {
-    const blob = await response.blob();
-    await pageRequest('cache-put', {
+    const { writeId } = await pageRequest('cache-write', {
       cache: name,
       url,
-      blob,
       headers: [...response.headers],
     });
+    let chunk = new Uint8Array(CHUNK_SIZE);
+    let filled = 0;
+    const send = async () => {
+      const buffer = chunk.buffer.slice(0, filled);
+      chunk = new Uint8Array(CHUNK_SIZE);
+      filled = 0;
+      await pageRequest('cache-write-chunk', { writeId, chunk: buffer }, [
+        buffer,
+      ]);
+    };
+    // A body made from a whole model file may arrive as one huge piece.
+    const reader = response.body?.getReader();
+    for (;;) {
+      const { value: piece, done } = (await reader?.read()) ?? { done: true };
+      if (done) break;
+      for (let offset = 0; offset < piece.length;) {
+        const length = Math.min(CHUNK_SIZE - filled, piece.length - offset);
+        chunk.set(piece.subarray(offset, offset + length), filled);
+        filled += length;
+        offset += length;
+        if (filled === CHUNK_SIZE) await send();
+      }
+    }
+    if (filled) await send();
+    await pageRequest('cache-write-end', { writeId });
   },
   async delete(url) {
     return (await pageRequest('cache-delete', { cache: name, url })).deleted;
   },
-  async list(prefix) {
-    return (await pageRequest('cache-list', { cache: name, prefix })).entries;
+  async list(prefix, { sizes = false } = {}) {
+    return (await pageRequest('cache-list', { cache: name, prefix, sizes }))
+      .entries;
   },
 });
 
@@ -211,11 +253,9 @@ function usePageStorage() {
       // helps in Chrome; in Safari, the origin has usually changed since.
       const old = await workerFiles.match(url);
       if (!old) return undefined;
-      const blob = await old.blob();
-      const headers = [...old.headers];
-      await modelFiles.put(url, new Response(blob, { headers }));
+      await modelFiles.put(url, old);
       await workerFiles.delete(url);
-      return new Response(blob, { headers });
+      return modelFiles.match(url);
     },
     put: (url, response) => modelFiles.put(url, response),
   };
@@ -372,7 +412,8 @@ async function markDownloaded(modelId, deviceKey) {
 async function modelsStatus(preference) {
   const deviceKey = await resolveDevice(preference).catch(() => 'wasm');
   const [files, hashes, marked] = await Promise.all([
-    modelFiles.list('/'),
+    // Sizes cost a lookup per file, which WebKit makes slow for big ones.
+    modelFiles.list('/', { sizes: true }),
     localStore(HASH_CACHE).list('/'),
     markers.list('/'),
   ]);

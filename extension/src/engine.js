@@ -33,8 +33,15 @@ const toPage = (message) =>
 const pagePending = new Map();
 let pageNextId = -1;
 
+// Model file chunks are `ArrayBuffer`s, transferred to avoid copies.
+const transferable = (message) => (message.chunk ? [message.chunk] : []);
+
 function requestPage(message) {
-  parent.postMessage({ vtw: 'engine-page', ...message }, pageOrigin);
+  parent.postMessage(
+    { vtw: 'engine-page', ...message },
+    pageOrigin,
+    transferable(message),
+  );
 }
 
 // What the page offers. Nothing, if the main-world script is missing because
@@ -207,7 +214,10 @@ addEventListener('message', (event) => {
       pagePending.get(reply.id)?.(reply);
       pagePending.delete(reply.id);
     } else {
-      worker?.postMessage({ type: 'page-reply', ...reply });
+      worker?.postMessage(
+        { type: 'page-reply', ...reply },
+        transferable(reply),
+      );
     }
   } else if (message?.vtw === 'content') {
     const { vtw, ...request } = message;

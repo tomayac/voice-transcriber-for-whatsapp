@@ -16,7 +16,9 @@ detection to the languages you actually receive (English, German, and Catalan by
 default), which keeps it from confusing close languages such as Catalan and
 Spanish.
 
-> [!NOTE] Voice Transcriber for WhatsApp is an independent project. It is not
+<!-- prettier-ignore -->
+> [!NOTE]
+> Voice Transcriber for WhatsApp is an independent project. It is not
 > affiliated with, endorsed by, or sponsored by WhatsApp or Meta. WhatsApp is a
 > trademark of WhatsApp LLC.
 
@@ -111,6 +113,15 @@ those two caches, never the ones WhatsApp keeps. Models that an earlier version
 cached in the extension's origin move over when first used. Clearing WhatsApp's
 site data removes the models, too.
 
+Each model file is stored as 16 MB parts, one cache entry each, plus an index
+entry under the file's URL that is written last, so a download that never
+finished leaves nothing to find. The parts travel between the engine and the
+page as transferred `ArrayBuffer`s. Safari cannot store a large file in one
+entry: `cache.put()` fails with "Blob loading failed" for a `Blob` body of more
+than some 100 MB, and even Transformers.js's own cache never keeps the 1.27 GB
+encoder of Whisper large-v3 turbo there. Reading one big entry also appears to
+load all of it into the reading process at once.
+
 ### Cross-Origin Storage
 
 With **Store models with Cross-Origin Storage** on (the default), the worker
@@ -177,7 +188,9 @@ Cross-Origin Storage reuse: the model should load without downloading again.
 no extension around them, which helps debug the model side in a browser where
 loading the extension is inconvenient. Serve the repository root
 (`python3 -m http.server`) and open
-`/test/worker.html?model=whisper-base&lang=ca`.
+`/test/worker.html?model=whisper-base&lang=ca`. `test/storage.html` adds the
+page side of the model storage, with the real `main-world.js`; load it twice to
+check that the second run reads the model from the cache.
 
 ## License
 
